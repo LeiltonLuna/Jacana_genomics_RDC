@@ -1,0 +1,40 @@
+
+#!/bin/bash
+#SBATCH --account=account_name
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=10
+#SBATCH --time=200:00:00
+#SBATCH --mem=32GB
+#SBATCH --output=snp_calling.log
+#SBATCH --error=snp_calling.err
+#SBATCH --job-name=snp_calling
+
+# Required modules (if applicable)
+module load bcftools/1.21.1
+module load VCFtools/0.1.17
+
+# Variable definitions
+REF_GENOME="/path/to/reference_genome.fa"
+BAM_FILE="/path/to/bam_directory"
+BAM_LIST="/path/to/bam_filelist.txt"
+OUT_VCF="/path/to/output/raw_variants.vcf.gz"
+FILTERED_VCF="/path/to/output/filtered_variants.vcf.gz"
+THREADS=10
+
+# SNP calling adjusted for 15X coverage
+bcftools mpileup -Ou \
+    -f "$REF_GENOME" \
+    -b "$BAM_LIST" \
+    --threads "$THREADS" | \
+    bcftools call -m -V indels -f GQ -Oz -o "$OUT_VCF"
+
+# SNP filtering
+vcftools --gzvcf "$OUT_VCF" \
+    --remove-indels \
+    --max-missing 0.8 \
+    --minDP 8 \
+    --maxDP 30 \
+    --minGQ 20 \
+    --mac 2 \
+    --recode --stdout | gzip -c > "$FILTERED_VCF"
