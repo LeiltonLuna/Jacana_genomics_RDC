@@ -1,0 +1,23 @@
+#!/bin/bash
+#SBATCH --account=account_name
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=8
+#SBATCH --time=5:00:00
+#SBATCH --mem=16GB
+#SBATCH -o pixy.log
+#SBATCH --job-name=pixy
+
+# Set variables
+vcf="/path/to/input.vcf.gz"
+popfile="/path/to/populations.popfile"
+output="/path/to/output_directory"
+
+# Run pixy to estimate population genetic statistics
+pixy --stats pi fst dxy tajima_d \
+    --vcf "$vcf" \
+    --populations "$popfile" \
+    --window_size 50000 \
+    --n_cores 8 \
+    --output_folder "$output" \
+    --output_prefix "population_comparison" \
+    --fst_type wc
