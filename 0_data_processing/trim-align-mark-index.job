@@ -1,0 +1,98 @@
+
+#!/bin/bash
+#SBATCH --account=YOUR_HPC_ACCOUNT
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=14
+#SBATCH --time=200:00:00
+#SBATCH --mem=100GB
+#SBATCH -o trim-align-mark-index.log
+#SBATCH --job-name=trim-align-mark-index
+
+
+# Load modules
+module load Bowtie2/2.4.4
+module load samtools/1.21
+module load Picard/2.18.2
+module load Java/1.8.0_60
+
+
+# Set variables
+maindir=/PATH/TO/PROJECT_DIRECTORY
+workdir=$maindir/raw_reads
+genomedir=/PATH/TO/REFERENCE_GENOME_DIRECTORY
+sequencingdir=SEQUENCING_BATCH_DIRECTORY
+cores=14
+condamodule=/PATH/TO/CONDA_BIN_DIRECTORY
+
+# Main script commands
+echo 'job started at' `date`
+
+samples=($(find $workdir/$sequencingdir -iname "*R1_001.fastq.gz" -exec sh -c 'echo "$(basename {} _R1_001.fastq.gz)"' \;))
+
+
+## Trim adapters, Ns, set quality cutoff
+for sample in ${samples[@]}
+do
+
+$condamodule/AdapterRemoval \
+--file1 $workdir/$sequencingdir/${sample}_R1_001.fastq.gz \
+--file2 $workdir/$sequencingdir/${sample}_R2_001.fastq.gz \
+--collapse \
+--trimns \
+--minlength 20 \
+--qualitybase 33 \
+--gzip \
+--basename $workdir/proc-reads/$sample \
+--threads $cores
+
+done
+
+
+## Start loop through samples
+for sample in ${samples[@]}
+do
+
+### Align to reference genome
+bowtie2 \
+--threads $cores \
+--very-sensitive-local \
+--local \
+--phred33 \
+-x $genomedir/REFERENCE_GENOME_INDEX \
+--rg-id $sample \
+--rg SM:$sample \
+-1 $workdir/proc-reads/${sample}.pair1.truncated.gz \
+-2 $workdir/proc-reads/${sample}.pair2.truncated.gz \
+-U $workdir/proc-reads/${sample}.collapsed.gz \
+-X 700 \
+-S $workdir/bam/${sample}.sam
+
+
+### Save as coordinate-sorted .bam files
+samtools sort \
+--threads $cores \
+-O bam \
+-m 16G \
+$workdir/bam/${sample}.sam \
+-o $workdir/bam/${sample}.bam
+
+
+### Mark duplicates
+java -jar /PATH/TO/PICARD/picard.jar MarkDuplicates \
+--INPUT $workdir/bam/${sample}.bam \
+--OUTPUT $workdir/bam/${sample}.marked.bam \
+--METRICS_FILE $workdir/metrics/${sample}.metrics.txt \
+--MAX_FILE_HANDLES_FOR_READ_ENDS_MAP 80000
+
+
+### Index the marked .bam files
+samtools index $workdir/bam/${sample}.marked.bam
+
+
+### Delete extra files if indexed, marked bam exists
+if test -s $workdir/bam/${sample}.marked.bam.bai
+then rm $workdir/bam/${sample}.sam
+rm $workdir/bam/${sample}.bam
+fi
+
+done
